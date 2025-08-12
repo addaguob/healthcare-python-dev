@@ -30,6 +30,8 @@ This setup script will:
 - Install the prompt-engineering framework and supporting files
 - Create a CLAUDE.md file if it doesn't exist
 - Provide helpful next steps and available resources
+  
+Note: In non-interactive mode, existing files are skipped by default; set FORCE_OVERWRITE=yes to overwrite.
 
 ## Recommended Technology Stacks
 

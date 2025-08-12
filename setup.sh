@@ -6,7 +6,7 @@
 #
 # Environment Variables:
 #   FORCE_CONTINUE=yes    - Skip project root directory check in non-interactive mode
-#   FORCE_OVERWRITE=yes   - Overwrite existing prompt-engineering directory in non-interactive mode
+#   FORCE_OVERWRITE=yes   - Overwrite existing files/directories when collisions are detected (non-interactive)
 
 set -e  # Exit on any error
 
@@ -19,6 +19,7 @@ NC='\033[0m' # No Color
 
 # Globals
 DRY_RUN="${DRY_RUN:-no}"
+OVERWRITE_MODE="ask"  # ask|overwrite|skip
 
 # Function to print colored output
 print_status() {
@@ -92,20 +93,23 @@ check_existing_installation() {
     done
 
     if [[ ${#collisions[@]} -gt 0 ]]; then
-        print_warning "The following files/directories already exist and will be overwritten: ${collisions[*]}"
         if [[ -t 0 ]]; then
-            read -p "Proceed and overwrite? (y/N): " -n 1 -r
+            print_warning "The following items already exist: ${collisions[*]}"
+            read -p "Overwrite existing items? (y/N): " -n 1 -r
             echo
-            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                print_error "Setup cancelled"
-                exit 1
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                OVERWRITE_MODE="overwrite"
+            else
+                OVERWRITE_MODE="skip"
+                print_warning "Existing items will be skipped"
             fi
         else
-            if [[ "$FORCE_OVERWRITE" != "yes" ]]; then
-                print_error "Non-interactive mode and collisions detected. Set FORCE_OVERWRITE=yes to overwrite."
-                exit 1
+            if [[ "$FORCE_OVERWRITE" == "yes" ]]; then
+                print_warning "Overwriting existing items due to FORCE_OVERWRITE=yes"
+                OVERWRITE_MODE="overwrite"
             else
-                print_warning "Overwriting due to FORCE_OVERWRITE=yes"
+                print_warning "Non-interactive mode: existing items will be skipped: ${collisions[*]}"
+                OVERWRITE_MODE="skip"
             fi
         fi
     fi
@@ -179,13 +183,27 @@ download_framework() {
     check_existing_installation "$FRAMEWORK_DIR"
 
     # Perform copy
+    SKIPPED=()
     for item in "${TO_COPY[@]}"; do
+        if [[ -e "$item" ]]; then
+            if [[ "$OVERWRITE_MODE" == "overwrite" ]]; then
+                : # fall through to copy
+            else
+                print_warning "Skipping existing $item"
+                SKIPPED+=("$item")
+                continue
+            fi
+        fi
         if [[ -d "$FRAMEWORK_DIR/$item" ]]; then
             cp -r "$FRAMEWORK_DIR/$item" .
         elif [[ -f "$FRAMEWORK_DIR/$item" ]]; then
             cp "$FRAMEWORK_DIR/$item" .
         fi
     done
+
+    if [[ ${#SKIPPED[@]} -gt 0 ]]; then
+        print_status "Skipped (already existed): ${SKIPPED[*]}"
+    fi
 
     # Cleanup
     rm -rf "$TEMP_DIR"
@@ -196,6 +214,10 @@ download_framework() {
 # Create CLAUDE.md if it doesn't exist
 create_claude_md() {
     if [[ ! -f "CLAUDE.md" ]]; then
+        if [[ "$DRY_RUN" == "yes" ]]; then
+            print_status "Dry run: would create CLAUDE.md"
+            return 0
+        fi
         print_status "Creating CLAUDE.md file..."
         cat > CLAUDE.md << 'EOF'
 # CLAUDE.md
@@ -249,18 +271,34 @@ main() {
     echo
     print_status "Available agents:"
     if [[ -d "prompt-engineering/agents" ]]; then
-        for agent in prompt-engineering/agents/*.md; do
-            agent_name=$(basename "$agent" .md)
-            echo "  - $agent_name"
-        done
+        shopt -s nullglob
+        AGENTS=(prompt-engineering/agents/*.md)
+        if [[ ${#AGENTS[@]} -eq 0 ]]; then
+            echo "  (none)"
+        else
+            for agent in "${AGENTS[@]}"; do
+                echo "  - $(basename "$agent")"
+            done
+        fi
+        shopt -u nullglob
+    else
+        echo "  (none)"
     fi
     echo
     print_status "Available commands:"
     if [[ -d "prompt-engineering/commands" ]]; then
-        for command in prompt-engineering/commands/*.md; do
-            command_name=$(basename "$command" .md)
-            echo "  - $command_name"
-        done
+        shopt -s nullglob
+        CMDS=(prompt-engineering/commands/*.md)
+        if [[ ${#CMDS[@]} -eq 0 ]]; then
+            echo "  (none)"
+        else
+            for command in "${CMDS[@]}"; do
+                echo "  - $(basename "$command")"
+            done
+        fi
+        shopt -u nullglob
+    else
+        echo "  (none)"
     fi
     echo
 }
