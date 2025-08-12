@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Healthcare Python Dev - AI Context Framework Setup Script
-# This script downloads and installs the prompt-engineering framework
-# into your project's root directory
+# This script downloads and installs this repository's framework files
+# into your project's root directory (excluding README.md, LICENSE, setup.sh)
 #
 # Environment Variables:
 #   FORCE_CONTINUE=yes    - Skip project root directory check in non-interactive mode
@@ -16,6 +16,9 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+
+# Globals
+DRY_RUN="${DRY_RUN:-no}"
 
 # Function to print colored output
 print_status() {
@@ -34,6 +37,17 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Parse CLI arguments
+parse_args() {
+    for arg in "$@"; do
+        case "$arg" in
+            --dry-run)
+                DRY_RUN="yes"
+                ;;
+        esac
+    done
+}
+
 # Check if we're in a project root directory
 check_project_root() {
     print_status "Checking if current directory is a project root..."
@@ -46,32 +60,52 @@ check_project_root() {
     fi
 }
 
-# Check if prompt-engineering directory already exists
+# Preflight check for existing files that would be overwritten
 check_existing_installation() {
-    if [[ -d "prompt-engineering" ]]; then
-        print_warning "prompt-engineering directory already exists"
-        
-        # Check if running in interactive mode
+    local src_dir="$1"
+    shift || true
+    local -a excludes=("README.md" "LICENSE" "setup.sh")
+
+    # Build list of items to copy
+    local -a items=()
+    while IFS= read -r item; do
+        # Skip excluded names
+        local base
+        base="$(basename "$item")"
+        local skip=false
+        for ex in "${excludes[@]}"; do
+            if [[ "$base" == "$ex" ]]; then
+                skip=true
+                break
+            fi
+        done
+        $skip && continue
+        items+=("$base")
+    done < <(ls -1 "$src_dir")
+
+    # Detect any collisions
+    local collisions=()
+    for name in "${items[@]}"; do
+        if [[ -e "$name" ]]; then
+            collisions+=("$name")
+        fi
+    done
+
+    if [[ ${#collisions[@]} -gt 0 ]]; then
+        print_warning "The following files/directories already exist and will be overwritten: ${collisions[*]}"
         if [[ -t 0 ]]; then
-            read -p "Do you want to overwrite it? (y/N): " -n 1 -r
+            read -p "Proceed and overwrite? (y/N): " -n 1 -r
             echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                print_status "Removing existing prompt-engineering directory..."
-                rm -rf prompt-engineering
-            else
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
                 print_error "Setup cancelled"
                 exit 1
             fi
         else
-            # Non-interactive mode - check for environment variable override
             if [[ "$FORCE_OVERWRITE" != "yes" ]]; then
-                print_error "Running in non-interactive mode and prompt-engineering directory exists."
-                print_error "Set FORCE_OVERWRITE=yes environment variable to overwrite."
+                print_error "Non-interactive mode and collisions detected. Set FORCE_OVERWRITE=yes to overwrite."
                 exit 1
             else
                 print_warning "Overwriting due to FORCE_OVERWRITE=yes"
-                print_status "Removing existing prompt-engineering directory..."
-                rm -rf prompt-engineering
             fi
         fi
     fi
@@ -80,76 +114,84 @@ check_existing_installation() {
 # Download and extract the framework
 download_framework() {
     print_status "Downloading Healthcare Python Dev framework..."
-    
+
     TEMP_DIR=$(mktemp -d)
-    
+
     # Download the repository
     curl -L "https://github.com/addaguob/healthcare-python-dev/archive/refs/heads/main.tar.gz" \
         -o "$TEMP_DIR/healthcare-python-dev.tar.gz" \
         --progress-bar
-    
+
     if [[ $? -ne 0 ]]; then
         print_error "Failed to download framework"
         rm -rf "$TEMP_DIR"
         exit 1
     fi
-    
-    # Extract all files except LICENSE and README.md
-    print_status "Extracting framework files (excluding LICENSE and README.md)..."
+
+    # Extract repository
+    print_status "Extracting framework files..."
     tar -xzf "$TEMP_DIR/healthcare-python-dev.tar.gz" -C "$TEMP_DIR"
     FRAMEWORK_DIR="$TEMP_DIR/healthcare-python-dev-main"
-    for item in $(ls "$FRAMEWORK_DIR"); do
-        if [[ "$item" != "LICENSE" && "$item" != "README.md" ]]; then
-            if [[ -d "$FRAMEWORK_DIR/$item" ]]; then
-                cp -r "$FRAMEWORK_DIR/$item" .
-            elif [[ -f "$FRAMEWORK_DIR/$item" ]]; then
-                cp "$FRAMEWORK_DIR/$item" .
+    
+    # Build list of items to install (excluding certain files)
+    mapfile -t ITEMS < <(ls -1 "$FRAMEWORK_DIR")
+    EXCLUDES=("README.md" "LICENSE" "setup.sh")
+    TO_COPY=()
+    for name in "${ITEMS[@]}"; do
+        skip=false
+        for ex in "${EXCLUDES[@]}"; do
+            if [[ "$name" == "$ex" ]]; then
+                skip=true
+                break
             fi
+        done
+        $skip && continue
+        TO_COPY+=("$name")
+    done
+
+    # If dry-run, only print what would happen and exit
+    if [[ "$DRY_RUN" == "yes" ]]; then
+        print_status "Dry run enabled. No files will be copied."
+        echo "Would install the following items to $(pwd):"
+        for n in "${TO_COPY[@]}"; do
+            echo "  - $n" 
+        done
+
+        # Show any overwrites
+        OVERWRITES=()
+        for n in "${TO_COPY[@]}"; do
+            if [[ -e "$n" ]]; then
+                OVERWRITES+=("$n")
+            fi
+        done
+        if [[ ${#OVERWRITES[@]} -gt 0 ]]; then
+            print_warning "The following items would be overwritten: ${OVERWRITES[*]}"
+        else
+            print_status "No existing files would be overwritten."
+        fi
+
+        # Cleanup and exit
+        rm -rf "$TEMP_DIR"
+        return 0
+    fi
+
+    # Preflight overwrite check (interactive/CI behavior)
+    check_existing_installation "$FRAMEWORK_DIR"
+
+    # Perform copy
+    for item in "${TO_COPY[@]}"; do
+        if [[ -d "$FRAMEWORK_DIR/$item" ]]; then
+            cp -r "$FRAMEWORK_DIR/$item" .
+        elif [[ -f "$FRAMEWORK_DIR/$item" ]]; then
+            cp "$FRAMEWORK_DIR/$item" .
         fi
     done
+
     # Cleanup
     rm -rf "$TEMP_DIR"
 }
 
-# Download additional AI instruction files
-download_ai_instructions() {
-    print_status "Downloading AI instruction files..."
-    
-    # Create .github directory if it doesn't exist
-    mkdir -p .github
-    
-    # Download GitHub Copilot instructions
-    if [[ ! -f ".github/copilot-instructions.md" ]]; then
-        print_status "Downloading GitHub Copilot instructions..."
-        curl -L "https://raw.githubusercontent.com/addaguob/healthcare-python-dev/main/.github/copilot-instructions.md" \
-            -o ".github/copilot-instructions.md" \
-            --silent
-        
-        if [[ $? -eq 0 ]]; then
-            print_success "Downloaded .github/copilot-instructions.md"
-        else
-            print_warning "Failed to download .github/copilot-instructions.md"
-        fi
-    else
-        print_warning ".github/copilot-instructions.md already exists, skipping"
-    fi
-    
-    # Download Gemini instructions
-    if [[ ! -f "GEMINI.md" ]]; then
-        print_status "Downloading Gemini instructions..."
-        curl -L "https://raw.githubusercontent.com/addaguob/healthcare-python-dev/main/GEMINI.md" \
-            -o "GEMINI.md" \
-            --silent
-        
-        if [[ $? -eq 0 ]]; then
-            print_success "Downloaded GEMINI.md"
-        else
-            print_warning "Failed to download GEMINI.md"
-        fi
-    else
-        print_warning "GEMINI.md already exists, skipping"
-    fi
-}
+## Removed redundant per-file download steps; all files are installed from the archive
 
 # Create CLAUDE.md if it doesn't exist
 create_claude_md() {
@@ -189,18 +231,16 @@ EOF
 # Main execution
 main() {
     echo
-    print_status "Healthcare Engineering - AI Context Framework Setup"
+    print_status "Healthcare Python Dev - AI Context Framework Setup"
     echo "=================================================="
     echo
-    
+    parse_args "$@"
     check_project_root
-    check_existing_installation
     download_framework
-    download_ai_instructions
     create_claude_md
     
     echo
-    print_success "Healthcare Engineering framework successfully installed!"
+    print_success "Healthcare Python Dev framework successfully installed!"
     echo
     print_status "Next steps:"
     echo "  1. Review prompt-engineering/AGENT-ONBOARDING.md"
