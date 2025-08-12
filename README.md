@@ -17,6 +17,12 @@ To use this framework in your own project, navigate to your project's root direc
 curl -sSL https://raw.githubusercontent.com/addaguob/healthcare-python-dev/main/setup.sh | bash
 ```
 
+Non-interactive install with overwrite (CI-friendly):
+
+```bash
+FORCE_OVERWRITE=yes bash <(curl -sSL https://raw.githubusercontent.com/addaguob/healthcare-python-dev/main/setup.sh)
+```
+
 Tip: Preview changes without writing files by adding --dry-run:
 
 ```bash
@@ -81,9 +87,9 @@ FORCE_OVERWRITE=yes bash <(curl -sSL https://raw.githubusercontent.com/addaguob/
 
 - Uninstall: Manually remove files and folders that were installed. Typical items include:
 
-	- prompt-engineering/
-	- .github/copilot-instructions.md (if present)
-	- CLAUDE.md (if generated)
-	- GEMINI.md (if present)
+ 	- prompt-engineering/
+ 	- .github/copilot-instructions.md (if present)
+ 	- CLAUDE.md (if generated)
+ 	- GEMINI.md (if present)
 
 	Review your git status or project tree before deletion to avoid removing customized files.
